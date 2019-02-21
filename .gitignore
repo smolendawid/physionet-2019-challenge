@@ -1,0 +1,7 @@
+data/raw/sample_submission.csv
+data/raw/train.csv
+data/processed/train_subsampled.csv
+data
+.idea
+.DS_Store
+__pycache__
