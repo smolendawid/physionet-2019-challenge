@@ -4,20 +4,28 @@ import os
 import pickle
 import tqdm
 from utils.path_utils import project_root
+import sklearn.preprocessing
 
 
 def write_pickle(training_files):
 
     lengths = []
+    is_sepsis = []
     all_data = pd.DataFrame()
     training_examples = []
     for training_file in tqdm.tqdm(training_files):
         example = pd.read_csv(training_file, sep=',')
+        is_sepsis.append(1 if 1 in example['SepsisLabel'].values else 0)
+
         lengths.append(len(example))
         all_data = pd.concat([all_data, example])
+    ss = sklearn.preprocessing.StandardScaler()
+    all_data = pd.DataFrame(ss.fit_transform(all_data), columns=all_data.columns.values)
 
-    with open(os.path.join(project_root(), 'data', 'processed', 'lengths.txt', 'w')) as f:
+    with open(os.path.join(project_root(), 'data', 'processed', 'lengths.txt'), 'w') as f:
         [f.write('{}\n'.format(l)) for l in lengths]
+    with open(os.path.join(project_root(), 'data', 'processed', 'is_sepsis.txt'), 'w') as f:
+        [f.write('{}\n'.format(l)) for l in is_sepsis]
 
     with open(os.path.join(project_root(), 'data', 'processed', 'training_raw.pickle'), 'wb') as f:
         pickle.dump(training_examples, f)
