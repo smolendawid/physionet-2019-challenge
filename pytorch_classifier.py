@@ -247,11 +247,15 @@ class PytorchClassifer:
         self.model.train(mode=False)
         predictions = []
         references = []
-        for example in examples:
+        for example in tqdm.tqdm(examples):
             reference = example['SepsisLabel'].values
-            example = torch.tensor([example.drop(['SepsisLabel', 'ICULOS'], axis=1).values])
+            example = torch.tensor([example.drop(['SepsisLabel', 'ICULOS'], axis=1).values.astype(np.float32)])
 
             prediction = self.model(example)
+            prediction = nn.functional.sigmoid(prediction)
+            prediction = np.concatenate(prediction.data.numpy()[0])
+            prediction = np.where(prediction > 0.5, 1, 0)
+
             predictions.append(prediction)
             references.append(reference)
 
