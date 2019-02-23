@@ -54,7 +54,7 @@ class SortedDataset(tud.Dataset):
         return inputs, targets
 
 
-def make_raw_loader(list_of_examples, lengths_list,
+def make_raw_loader(list_of_examples, lengths_list, is_sepsis,
                     batch_size,
                     num_workers=4,
                     use_sampler=True):

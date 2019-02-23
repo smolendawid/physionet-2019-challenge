@@ -8,6 +8,7 @@ import torch
 from loader import make_raw_loader
 import time
 import tqdm
+from tensorboardX import SummaryWriter
 
 
 def _create_mask(size):
@@ -132,20 +133,7 @@ class PositionalEncoder(nn.Module):
     def __init__(self, hidden_size, max_seq_len=1000):
         super(PositionalEncoder, self).__init__()
         self.hidden_size = hidden_size
-
-        # create constant 'pe' matrix with values dependant on
-        # pos and i
-        pe = torch.zeros(max_seq_len, hidden_size)
-        last_iter = hidden_size if hidden_size%2 == 0 else hidden_size - 1
-
-        for pos in range(max_seq_len):
-            for i in range(0, last_iter, 2):
-                pe[pos, i] = \
-                    math.sin(pos / (10000 ** ((2 * i) / hidden_size)))
-                pe[pos, i + 1] = \
-                    math.cos(pos / (10000 ** ((2 * (i + 1)) / hidden_size)))
-
-        pe = pe.unsqueeze(0)
+        pe = _create_position_encoding(hidden_size=hidden_size, max_seq_len=max_seq_len)
         self.register_buffer('pe', pe)
 
     def forward(self, x):
@@ -161,19 +149,67 @@ class PositionalEncoder(nn.Module):
         return x
 
 
+def _create_position_encoding(hidden_size, max_seq_len=1000):
+    # create constant 'pe' matrix with values dependant on
+    # pos and i
+    pe = torch.zeros(max_seq_len, hidden_size)
+    last_iter = hidden_size if hidden_size % 2 == 0 else hidden_size - 1
+
+    for pos in range(max_seq_len):
+        for i in range(0, last_iter, 2):
+            pe[pos, i] = \
+                math.sin(pos / (10000 ** ((2 * i) / hidden_size)))
+            pe[pos, i + 1] = \
+                math.cos(pos / (10000 ** ((2 * (i + 1)) / hidden_size)))
+
+    pe = pe.unsqueeze(0)
+    return pe
+
+
+class PositionalEncoderConcat(nn.Module):
+    # TODO max seq length should be equal to the longest training example
+    def __init__(self, hidden_size, max_seq_len=1000):
+        super(PositionalEncoderConcat, self).__init__()
+        self.hidden_size = hidden_size
+        pe = _create_position_encoding(hidden_size=hidden_size, max_seq_len=max_seq_len)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+
+        # add constant to embedding
+        batch_size, seq_len, _ = x.size()
+        seq_len = x.size(1)
+        x = torch.cat((x, torch.tensor(self.pe[:, :seq_len], requires_grad=False).repeat(batch_size, 1, 1)), 2)
+
+        if torch.cuda.is_available():
+            x = x.cuda()
+
+        return x
+
+
 class SelfAttentionClassifier(nn.Module):
-    def __init__(self, hidden_size, num_of_heads, num_layers, dropout, eps=1e-6):
+    def __init__(self, input_size, hidden_size, num_of_heads, num_layers, dropout, eps=1e-6):
         super(SelfAttentionClassifier, self).__init__()
 
         # self.embedding = nn.Embedding(hidden_size, hidden_size)
-        self.positional_encoding = PositionalEncoder(hidden_size)
+        # self.init_projection = nn.Linear(input_size, hidden_size)
+        # self.init_act = nn.Tanh()
+        concat = True
+        if concat:
+            self.positional_encoding = PositionalEncoderConcat(hidden_size)
+            model_hidden_size = hidden_size*2
+        else:
+            self.positional_encoding = PositionalEncoder(hidden_size)
+            model_hidden_size = hidden_size
 
         self.self_attention = MultiHeadSelfAttention(num_layers=num_layers,
-                                                     hidden_size=hidden_size, num_of_heads=num_of_heads,
+                                                     hidden_size=model_hidden_size, num_of_heads=num_of_heads,
                                                      dropout=dropout)
-        self.linear = nn.Linear(hidden_size, 1)
+        self.linear = nn.Linear(model_hidden_size, 1)
 
     def forward(self, x):
+        # x = self.init_projection(x)
+        # x = self.init_act(x)
 
         x = self.positional_encoding(x)
 
@@ -185,34 +221,19 @@ class SelfAttentionClassifier(nn.Module):
         return out
 
 
-def collate(inputs, targets):
-    max_t = max(inp.shape[0] for inp in inputs)
-    x_shape = (len(inputs), max_t, inputs[0].shape[1])
-    y_shape = (len(inputs), max_t)
-    x = np.zeros(x_shape, dtype=np.float32)
-    y = np.zeros(y_shape, dtype=np.float32)
-    for e, (inp, tar) in enumerate(zip(inputs, targets)):
-        x[e, :inp.shape[0], :] = inp
-        y[e, :inp.shape[0]] = tar
-
-    # y = torch.tensor(np.concatenate(y)).type(torch.LongTensor)
-    y = torch.tensor(np.concatenate(y))
-    x = torch.tensor(x)
-
-    return x, y
-
-
 class PytorchClassifer:
-    def __init__(self, config):
-        self.model = SelfAttentionClassifier(hidden_size=39, num_of_heads=3, num_layers=2, dropout=0.1)
-        self.criterion = torch.nn.BCEWithLogitsLoss(size_average=False)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.1)
+    def __init__(self, config, target_path):
+        self.model = SelfAttentionClassifier(input_size=39, hidden_size=39, num_of_heads=3, num_layers=4, dropout=0.1)
+        self.criterion = torch.nn.BCEWithLogitsLoss(size_average=True)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.0001)
         self.config = config
+        self.writer = SummaryWriter(log_dir=target_path, comment='')
 
-    def fit(self, training_examples, lengths_list):
+    def fit(self, examples, lengths_list, is_sepsis):
         self.model.train(mode=True)
-        loader = make_raw_loader(training_examples, lengths_list=lengths_list, batch_size=self.config['batch_size'])
+        loader = make_raw_loader(examples, lengths_list=lengths_list, is_sepsis=is_sepsis, batch_size=self.config['batch_size'])
 
+        abs_i = 0
         for epoch_i in range(self.config['epochs_num']):
             start = time.time()
             total_tokens = 0
@@ -230,6 +251,7 @@ class PytorchClassifer:
                 output = output.view(-1)
                 loss = self.criterion(output, y)
                 loss.backward()
+                grad_norm = nn.utils.clip_grad_norm_(self.model.parameters(), 150)
                 self.optimizer.step()
                 loss_val = loss.item() / y.shape[0] / batch_size
 
@@ -241,22 +263,49 @@ class PytorchClassifer:
                     rows_per_sec = tokens / elapsed
                     start = time.time()
                     tokens = 0
+
+                self.writer.add_scalar('train_loss', loss_val, abs_i)
+                self.writer.add_scalar('grad_norm', grad_norm, abs_i)
+                if i % 10 == 0:
+                    for name, param in self.model.named_parameters():
+                        self.writer.add_histogram(name, param.clone().cpu().detach().numpy(), abs_i, bins='doane')
+
                 tq.set_postfix(iter=i, loss=loss_val, rows_per_sec=rows_per_sec)
+                abs_i += 1
 
     def predict(self, examples):
         self.model.train(mode=False)
         predictions = []
         references = []
+        probas = []
         for example in tqdm.tqdm(examples):
             reference = example['SepsisLabel'].values
             example = torch.tensor([example.drop(['SepsisLabel', 'ICULOS'], axis=1).values.astype(np.float32)])
 
-            prediction = self.model(example)
-            prediction = nn.functional.sigmoid(prediction)
-            prediction = np.concatenate(prediction.data.numpy()[0])
-            prediction = np.where(prediction > 0.5, 1, 0)
+            proba = self.model(example)
+            proba = nn.functional.sigmoid(proba)
+            proba = np.concatenate(proba.data.numpy()[0])
+            prediction = np.where(proba > 0.1, 1, 0)
 
             predictions.append(prediction)
+            probas.append(proba)
             references.append(reference)
 
         return predictions, references
+
+
+def collate(inputs, targets):
+    max_t = max(inp.shape[0] for inp in inputs)
+    x_shape = (len(inputs), max_t, inputs[0].shape[1])
+    y_shape = (len(inputs), max_t)
+    x = np.zeros(x_shape, dtype=np.float32)
+    y = np.zeros(y_shape, dtype=np.float32)
+    for e, (inp, tar) in enumerate(zip(inputs, targets)):
+        x[e, :inp.shape[0], :] = inp
+        y[e, :inp.shape[0]] = tar
+
+    # y = torch.tensor(np.concatenate(y)).type(torch.LongTensor)
+    y = torch.tensor(np.concatenate(y))
+    x = torch.tensor(x)
+
+    return x, y
