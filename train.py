@@ -11,6 +11,7 @@ from sklearn.model_selection import KFold, GroupKFold, StratifiedKFold
 from pytorch_classifier import PytorchClassifer
 from compute_scores import normalized_utility_score
 from config import nn_config
+from tensorboardX import SummaryWriter
 
 
 def log(message: str='{}', value: any=None):
@@ -18,7 +19,25 @@ def log(message: str='{}', value: any=None):
     logging.info(message.format(value))
 
 
-def setup_results(exp_time):
+def initialize_local_experiment():
+
+    exp_time = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    setup_local_results(exp_time)
+
+    data_name = 'training_filled.pickle'
+    log(message="Data name: {}", value=data_name)
+
+    training_examples = pd.read_pickle(os.path.join(project_root(), 'data', 'processed', data_name))
+    with open(os.path.join(project_root(), 'data', 'processed', 'lengths.txt')) as f:
+        lengths_list = [int(l) for l in f.read().splitlines()]
+    with open(os.path.join(project_root(), 'data', 'processed', 'is_sepsis.txt')) as f:
+        is_sepsis = [int(l) for l in f.read().splitlines()]
+    writer = SummaryWriter(log_dir=os.path.join(project_root(), 'data', 'logs', exp_time), comment='')
+
+    return training_examples, lengths_list, is_sepsis, writer
+
+
+def setup_local_results(exp_time):
 
     log_root = os.path.join(project_root(), 'data', 'logs', exp_time)
     os.mkdir(log_root)
@@ -39,18 +58,7 @@ def get_split(ind_train, ind_test, training_examples, lengths_list, is_sepsis):
     return x_train, x_train_lens, is_sepsis_train, x_test, x_test_lens, is_sepsis_test
 
 
-def main():
-    exp_time = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    setup_results(exp_time)
-
-    data_name = 'training_filled.pickle'
-    log(message="Data name: {}", value=data_name)
-    training_examples = pd.read_pickle(os.path.join(project_root(), 'data', 'processed', data_name))
-    with open(os.path.join(project_root(), 'data', 'processed', 'lengths.txt')) as f:
-        lengths_list = [int(l) for l in f.read().splitlines()]
-    with open(os.path.join(project_root(), 'data', 'processed', 'is_sepsis.txt')) as f:
-        is_sepsis = [int(l) for l in f.read().splitlines()]
-
+def main(training_examples, lengths_list, is_sepsis, writer):
     skf = StratifiedKFold(n_splits=5)
     train_scores = []
     test_scores = []
@@ -61,7 +69,7 @@ def main():
         x_train, x_train_lens, is_sepsis_train, x_test, x_test_lens, is_sepsis_test = \
             get_split(ind_train, ind_test, training_examples, lengths_list, is_sepsis)
 
-        model = PytorchClassifer(nn_config, os.path.join(project_root(), 'data', 'logs', exp_time))
+        model = PytorchClassifer(config=nn_config, writer=writer)
         model.fit(x_train, x_train_lens, is_sepsis_train)
         y_pred_train, y_train = model.predict(x_train)
         y_pred_test, y_test = model.predict(x_test)
@@ -87,4 +95,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    training_examples, lengths_list, is_sepsis, writer = initialize_local_experiment()
+    main(training_examples, lengths_list, is_sepsis, writer)

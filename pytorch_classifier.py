@@ -8,7 +8,6 @@ import torch
 from loader import make_raw_loader
 import time
 import tqdm
-from tensorboardX import SummaryWriter
 
 
 def _create_mask(size):
@@ -188,14 +187,13 @@ class PositionalEncoderConcat(nn.Module):
 
 
 class SelfAttentionClassifier(nn.Module):
-    def __init__(self, input_size, hidden_size, num_of_heads, num_layers, dropout, eps=1e-6):
+    def __init__(self, input_size, hidden_size, num_of_heads, num_layers, dropout, eps=1e-6, to_concat=True):
         super(SelfAttentionClassifier, self).__init__()
 
         # self.embedding = nn.Embedding(hidden_size, hidden_size)
         # self.init_projection = nn.Linear(input_size, hidden_size)
         # self.init_act = nn.Tanh()
-        concat = True
-        if concat:
+        if to_concat:
             self.positional_encoding = PositionalEncoderConcat(hidden_size)
             model_hidden_size = hidden_size*2
         else:
@@ -222,19 +220,26 @@ class SelfAttentionClassifier(nn.Module):
 
 
 class PytorchClassifer:
-    def __init__(self, config, target_path):
-        self.model = SelfAttentionClassifier(input_size=39, hidden_size=39, num_of_heads=3, num_layers=4, dropout=0.1)
+    def __init__(self, config, writer=None):
+        self.conf = config
+        self.model = SelfAttentionClassifier(input_size=config['input_size'],
+                                             hidden_size=config['hidden_size'],
+                                             num_of_heads=config['num_of_heads'],
+                                             num_layers=config['num_layers'],
+                                             dropout=config['dropout'],
+                                             to_concat=config['to_concat'])
         self.criterion = torch.nn.BCEWithLogitsLoss(size_average=True)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.0001)
-        self.config = config
-        self.writer = SummaryWriter(log_dir=target_path, comment='')
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.conf['lr'])
+        if writer is not None:
+            self.writer = writer
 
     def fit(self, examples, lengths_list, is_sepsis):
         self.model.train(mode=True)
-        loader = make_raw_loader(examples, lengths_list=lengths_list, is_sepsis=is_sepsis, batch_size=self.config['batch_size'])
+        loader = make_raw_loader(examples, lengths_list=lengths_list,
+                                 is_sepsis=is_sepsis, batch_size=self.conf['batch_size'])
 
         abs_i = 0
-        for epoch_i in range(self.config['epochs_num']):
+        for epoch_i in range(self.conf['epochs_num']):
             start = time.time()
             total_tokens = 0
             total_loss = 0
@@ -251,7 +256,7 @@ class PytorchClassifer:
                 output = output.view(-1)
                 loss = self.criterion(output, y)
                 loss.backward()
-                grad_norm = nn.utils.clip_grad_norm_(self.model.parameters(), 150)
+                grad_norm = nn.utils.clip_grad_norm_(self.model.parameters(), self.conf['clipping'])
                 self.optimizer.step()
                 loss_val = loss.item() / y.shape[0] / batch_size
 
@@ -263,12 +268,12 @@ class PytorchClassifer:
                     rows_per_sec = tokens / elapsed
                     start = time.time()
                     tokens = 0
-
-                self.writer.add_scalar('train_loss', loss_val, abs_i)
-                self.writer.add_scalar('grad_norm', grad_norm, abs_i)
-                if i % 10 == 0:
-                    for name, param in self.model.named_parameters():
-                        self.writer.add_histogram(name, param.clone().cpu().detach().numpy(), abs_i, bins='doane')
+                if self.writer is not None:
+                    self.writer.add_scalar('train_loss', loss_val, abs_i)
+                    self.writer.add_scalar('grad_norm', grad_norm, abs_i)
+                    if i % 10 == 0:
+                        for name, param in self.model.named_parameters():
+                            self.writer.add_histogram(name, param.clone().cpu().detach().numpy(), abs_i, bins='doane')
 
                 tq.set_postfix(iter=i, loss=loss_val, rows_per_sec=rows_per_sec)
                 abs_i += 1
