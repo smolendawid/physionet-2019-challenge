@@ -13,12 +13,17 @@ def write_pickle(training_files):
     is_sepsis = []
     all_data = pd.DataFrame()
     training_examples = []
-    for training_file in tqdm.tqdm(training_files):
+    for i, training_file in enumerate(tqdm.tqdm(training_files)):
         example = pd.read_csv(training_file, sep=',')
+        example['seg_id'] = i
+        training_examples.append(example)
         is_sepsis.append(1 if 1 in example['SepsisLabel'].values else 0)
 
         lengths.append(len(example))
-        all_data = pd.concat([all_data, example])
+        all_data = pd.concat([all_data, example], ignore_index=True)
+
+    all_data.to_hdf(os.path.join(project_root(), 'data', 'processed', 'training_concatenated.hdf'), key='df')
+    all_data.to_csv(os.path.join(project_root(), 'data', 'processed', 'training_concatenated.csv'))
     ss = sklearn.preprocessing.StandardScaler()
     all_data = pd.DataFrame(ss.fit_transform(all_data), columns=all_data.columns.values)
 
@@ -30,6 +35,18 @@ def write_pickle(training_files):
     with open(os.path.join(project_root(), 'data', 'processed', 'training_raw.pickle'), 'wb') as f:
         pickle.dump(training_examples, f)
 
+    training_examples = []
+    for training_file in tqdm.tqdm(training_files):
+        example = pd.read_csv(training_file, sep=',')
+        example.ffill(inplace=True)
+        example.bfill(inplace=True)
+        example.fillna(0, inplace=True)
+        training_examples.append(example)
+
+    with open(os.path.join(project_root(), 'data', 'processed', 'training_filled.pickle'), 'wb') as f:
+        pickle.dump(training_examples, f)
+
+    training_examples = []
     medians = all_data.median(axis=0, skipna=True)
     for training_file in tqdm.tqdm(training_files):
         example = pd.read_csv(training_file, sep=',')
@@ -39,6 +56,7 @@ def write_pickle(training_files):
     with open(os.path.join(project_root(), 'data', 'processed', 'training_median.pickle'), 'wb') as f:
         pickle.dump(training_examples, f)
 
+    training_examples = []
     means = all_data.mean(axis=0, skipna=True)
     for training_file in tqdm.tqdm(training_files):
         example = pd.read_csv(training_file, sep=',')
@@ -48,6 +66,7 @@ def write_pickle(training_files):
     with open(os.path.join(project_root(), 'data', 'processed', 'training_mean.pickle'), 'wb') as f:
         pickle.dump(training_examples, f)
 
+    training_examples = []
     for training_file in tqdm.tqdm(training_files):
         example = pd.read_csv(training_file, sep=',')
         example.fillna(0, inplace=True)
