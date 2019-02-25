@@ -9,6 +9,7 @@ from utils.path_utils import project_root
 
 from sklearn.model_selection import KFold, GroupKFold, StratifiedKFold
 from pytorch_classifier import PytorchClassifer
+from lgbm_classifier import LGBMClassifier, save_features_importance
 from compute_scores import normalized_utility_score
 from config import nn_config
 from tensorboardX import SummaryWriter
@@ -70,7 +71,7 @@ def main(training_examples, lengths_list, is_sepsis, writer):
         x_train, x_train_lens, is_sepsis_train, x_test, x_test_lens, is_sepsis_test = \
             get_split(ind_train, ind_test, training_examples, lengths_list, is_sepsis)
 
-        model = PytorchClassifer(config=nn_config, writer=writer, eval_set=[(x_test, is_sepsis_test),
+        model = LGBMClassifier(config=nn_config, writer=writer, eval_set=[(x_test, is_sepsis_test),
                                                                             x_train, is_sepsis_train])
         model.fit(x_train, x_train_lens, is_sepsis_train)
         y_pred_train, y_train = model.predict(x_train)
@@ -88,8 +89,8 @@ def main(training_examples, lengths_list, is_sepsis, writer):
         log(message="Train f_score: {}", value=test_f_score)
         log(message="Test f_score: {}", value=train_f_score)
 
-        # save_features_importance(model.feature_importances_, columns,
-        #                          os.path.join(project_root(), 'data', 'plots', 'fi.png'))
+        save_features_importance(model.feature_importances_, x_train[0].columns.values,
+                                 os.path.join(project_root(), 'data', 'processed', 'fi.png'))
         break
 
     log(message="\n\nMean train MAE: {}", value=np.mean(train_scores))

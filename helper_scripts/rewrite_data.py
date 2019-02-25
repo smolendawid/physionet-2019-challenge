@@ -11,7 +11,8 @@ def write_pickle(training_files):
 
     lengths = []
     is_sepsis = []
-    all_data = pd.DataFrame()
+    all_data = np.zeros((188453, 42))
+    ind = 0
     training_examples = []
     for i, training_file in enumerate(tqdm.tqdm(training_files)):
         example = pd.read_csv(training_file, sep=',')
@@ -20,10 +21,13 @@ def write_pickle(training_files):
         is_sepsis.append(1 if 1 in example['SepsisLabel'].values else 0)
 
         lengths.append(len(example))
-        all_data = pd.concat([all_data, example], ignore_index=True)
+
+        all_data[ind:ind+len(example), :] = example.values
+        ind += len(example)
+    all_data = pd.DataFrame(all_data, columns=example.columns.values, index=None)
 
     all_data.to_hdf(os.path.join(project_root(), 'data', 'processed', 'training_concatenated.hdf'), key='df')
-    all_data.to_csv(os.path.join(project_root(), 'data', 'processed', 'training_concatenated.csv'))
+    all_data.to_csv(os.path.join(project_root(), 'data', 'processed', 'training_concatenated.csv'), index=False)
     ss = sklearn.preprocessing.StandardScaler()
     all_data = pd.DataFrame(ss.fit_transform(all_data), columns=all_data.columns.values)
 

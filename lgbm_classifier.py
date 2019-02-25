@@ -17,30 +17,58 @@ def save_features_importance(features_importance, features_names, path):
     plt.savefig(path)
 
 
-class LGBMClassifier:
-    def __init__(self, eval_set: list):
-        self.eval_set = eval_set
+lgb_classifier_params = {'num_leaves': 60,
+                         'min_data_in_leaf': 120,
+                         'objective': 'binary',
+                         'max_depth': -1,
+                         'learning_rate': 0.001,
+                         # 'feature_fraction': 0.9,
+                         # 'bagging_freq': 3,
+                         # 'bagging_fraction': 0.9,
+                         # 'bagging_seed': 0,
+                         # 'feature_fraction_seed': 0,
+                         'reg_alpha': 0,
+                         'reg_lambda': 0,
+                         'metric': 'auc',
+                         'verbosity': -1,
+                         'early_stopping_rounds': 500,
+                         'scale_pos_weight': 20,
+                         }
 
-        lgb_classifier_params = {'num_leaves': 60,
-                                 'min_data_in_leaf': 120,
-                                 'objective': 'binary',
-                                 'max_depth': -1,
-                                 'learning_rate': 0.001,
-                                 "boosting": "gbdt",
-                                 "metric": 'binary_error',
-                                 "verbosity": -1,
-                                 }
+
+class LGBMClassifier:
+    def __init__(self, config, writer, eval_set: list):
+        self.eval_set = eval_set
+        self.feature_importances_ = None
+
         self.model = lgb.LGBMClassifier(**lgb_classifier_params, n_estimators=20000, n_jobs=-1)
 
-    def fit(self, x, y, lenghts):
+    def fit(self, examples, lenghts, sepsis):
+        examples = pd.concat(examples)
+        y_train = examples['SepsisLabel'].values
+        x_train = examples.drop(['SepsisLabel', 'ICULOS'], axis=1).values
 
-        self.model.fit(x, y, sample_weight=None,
-                       eval_set=self.eval_set,
+        eval_set = pd.concat(self.eval_set[0][0])
+        y_eval = eval_set['SepsisLabel'].values
+        x_eval = eval_set.drop(['SepsisLabel', 'ICULOS'], axis=1).values
+
+        self.model.fit(x_train, y_train, sample_weight=None,
+                       eval_set=[(x_eval, y_eval)],
                        verbose=50, early_stopping_rounds=500)
+        self.feature_importances_ = self.model.feature_importances_
 
-    def predict(self, x, num_iteration=None):
-        if num_iteration is None:
-            num_iteration = self.model.best_iteration_
-        predictions = self.model.predict(x, num_iteration=num_iteration)
+    def predict(self, examples, num_iteration=None):
+        references = []
+        predictions = []
+        for example in examples:
+            reference = example['SepsisLabel'].values
+            x = example.drop(['SepsisLabel', 'ICULOS'], axis=1).values
 
-        return predictions
+            if num_iteration is None:
+                num_iteration = self.model.best_iteration_
+            prediction = self.model.predict(x, num_iteration=num_iteration)
+
+            references.append(reference)
+            predictions.append(prediction)
+
+        return predictions, references
