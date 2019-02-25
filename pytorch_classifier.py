@@ -8,6 +8,7 @@ import torch
 from loader import make_raw_loader
 import time
 import tqdm
+from compute_scores import normalized_utility_score
 
 
 def _create_mask(size):
@@ -186,6 +187,20 @@ class PositionalEncoderConcat(nn.Module):
         return x
 
 
+class GRUClassifier(nn.Module):
+    def __init__(self, input_size, hidden_size, num_of_heads, num_layers, dropout, eps=1e-6, to_concat=True):
+        super(GRUClassifier, self).__init__()
+
+        self.rnn = nn.GRU(input_size=input_size, num_layers=num_layers, hidden_size=hidden_size, dropout=dropout)
+        self.linear = nn.Linear(hidden_size, 1)
+
+    def forward(self, x):
+        rnn_out, hidden = self.rnn(x)
+        out = self.linear(rnn_out)
+
+        return out
+
+
 class SelfAttentionClassifier(nn.Module):
     def __init__(self, input_size, hidden_size, num_of_heads, num_layers, dropout, eps=1e-6, to_concat=True):
         super(SelfAttentionClassifier, self).__init__()
@@ -220,7 +235,7 @@ class SelfAttentionClassifier(nn.Module):
 
 
 class PytorchClassifer:
-    def __init__(self, config, writer=None):
+    def __init__(self, config, writer=None, eval_set=None, ):
         self.conf = config
         self.model = SelfAttentionClassifier(input_size=config['input_size'],
                                              hidden_size=config['hidden_size'],
@@ -228,18 +243,18 @@ class PytorchClassifer:
                                              num_layers=config['num_layers'],
                                              dropout=config['dropout'],
                                              to_concat=config['to_concat'])
-        self.criterion = torch.nn.BCEWithLogitsLoss(size_average=True)
+        self.criterion = torch.nn.BCEWithLogitsLoss(size_average=self.conf['size_average'])
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.conf['lr'])
-        if writer is not None:
-            self.writer = writer
+        self.writer = writer
+        self.eval_set = eval_set
 
     def fit(self, examples, lengths_list, is_sepsis):
-        self.model.train(mode=True)
         loader = make_raw_loader(examples, lengths_list=lengths_list,
                                  is_sepsis=is_sepsis, batch_size=self.conf['batch_size'])
 
         abs_i = 0
         for epoch_i in range(self.conf['epochs_num']):
+            self.model.train(mode=True)
             start = time.time()
             total_tokens = 0
             total_loss = 0
@@ -254,11 +269,14 @@ class PytorchClassifer:
                 output = self.model(x)
                 batch_size, _, out_dim = output.size()
                 output = output.view(-1)
+
+                # weight = torch.tensor(np.ones((output.size(0), ))*10, requires_grad=False)
+
                 loss = self.criterion(output, y)
                 loss.backward()
                 grad_norm = nn.utils.clip_grad_norm_(self.model.parameters(), self.conf['clipping'])
                 self.optimizer.step()
-                loss_val = loss.item() / y.shape[0] / batch_size
+                loss_val = loss.item() / batch_size
 
                 total_loss += loss_val
                 total_tokens += x.shape[0]
@@ -277,24 +295,31 @@ class PytorchClassifer:
 
                 tq.set_postfix(iter=i, loss=loss_val, rows_per_sec=rows_per_sec)
                 abs_i += 1
+            if self.eval_set is not None:
+                y_pred_eval, y_ref_eval = self.predict(self.eval_set[0][0])
+                nus, _, f_score = normalized_utility_score(targets=y_ref_eval, predictions=y_pred_eval)
+                self.writer.add_scalar('eval_norm_utility_score', nus, abs_i)
+                self.writer.add_scalar('eval_f_score', f_score, abs_i)
+                print(nus)
 
     def predict(self, examples):
         self.model.train(mode=False)
         predictions = []
         references = []
         probas = []
-        for example in tqdm.tqdm(examples):
-            reference = example['SepsisLabel'].values
-            example = torch.tensor([example.drop(['SepsisLabel', 'ICULOS'], axis=1).values.astype(np.float32)])
+        with torch.no_grad():
+            for example in tqdm.tqdm(examples):
+                reference = example['SepsisLabel'].values
+                example = torch.tensor([example.drop(['SepsisLabel', 'ICULOS'], axis=1).values.astype(np.float32)])
 
-            proba = self.model(example)
-            proba = nn.functional.sigmoid(proba)
-            proba = np.concatenate(proba.data.numpy()[0])
-            prediction = np.where(proba > 0.1, 1, 0)
+                proba = self.model(example)
+                proba = nn.functional.sigmoid(proba)
+                proba = np.concatenate(proba.data.numpy()[0])
+                prediction = np.where(proba > 0.1, 1, 0)
 
-            predictions.append(prediction)
-            probas.append(proba)
-            references.append(reference)
+                predictions.append(prediction)
+                probas.append(proba)
+                references.append(reference)
 
         return predictions, references
 

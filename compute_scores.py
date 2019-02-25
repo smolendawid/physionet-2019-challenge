@@ -209,8 +209,8 @@ def normalized_utility_score(targets, predictions):
     unnormalized_worst_utility = np.sum(worst_utilities)
     unnormalized_inaction_utility = np.sum(inaction_utilities)
 
-    print(unnormalized_observed_utility, unnormalized_best_utility, unnormalized_worst_utility,
-          unnormalized_inaction_utility)
+    # print(unnormalized_observed_utility, unnormalized_best_utility, unnormalized_worst_utility,
+    #       unnormalized_inaction_utility)
 
     if not (
             unnormalized_worst_utility <= unnormalized_best_utility and unnormalized_inaction_utility <= unnormalized_best_utility):

@@ -64,18 +64,20 @@ def main(training_examples, lengths_list, is_sepsis, writer):
     test_scores = []
     y_preds_test = []
     inds_test = []
+    log(message="Config={}", value=nn_config)
 
     for i, (ind_train, ind_test) in enumerate(skf.split(training_examples, is_sepsis)):
         x_train, x_train_lens, is_sepsis_train, x_test, x_test_lens, is_sepsis_test = \
             get_split(ind_train, ind_test, training_examples, lengths_list, is_sepsis)
 
-        model = PytorchClassifer(config=nn_config, writer=writer)
+        model = PytorchClassifer(config=nn_config, writer=writer, eval_set=[(x_test, is_sepsis_test),
+                                                                            x_train, is_sepsis_train])
         model.fit(x_train, x_train_lens, is_sepsis_train)
         y_pred_train, y_train = model.predict(x_train)
         y_pred_test, y_test = model.predict(x_test)
 
-        test_score, _, _ = normalized_utility_score(y_test, y_pred_test)
-        train_score, _, _ = normalized_utility_score(y_train, y_pred_train)
+        test_score, _, test_f_score = normalized_utility_score(targets=y_test, predictions=y_pred_test)
+        train_score, _, train_f_score = normalized_utility_score(targets=y_train, predictions=y_pred_train)
 
         test_scores.append(test_score)
         train_scores.append(train_score)
@@ -83,6 +85,8 @@ def main(training_examples, lengths_list, is_sepsis, writer):
         inds_test.extend(list(ind_test))
         log(message="Train score: {}", value=test_score)
         log(message="Test score: {}", value=test_score)
+        log(message="Train f_score: {}", value=test_f_score)
+        log(message="Test f_score: {}", value=train_f_score)
 
         # save_features_importance(model.feature_importances_, columns,
         #                          os.path.join(project_root(), 'data', 'plots', 'fi.png'))
