@@ -84,10 +84,10 @@ def main(training_examples, lengths_list, is_sepsis, writer):
         train_scores.append(train_score)
         y_preds_test.extend(y_pred_test)
         inds_test.extend(list(ind_test))
-        log(message="Train score: {}", value=test_score)
+        log(message="Train score: {}", value=train_score)
         log(message="Test score: {}", value=test_score)
-        log(message="Train f_score: {}", value=test_f_score)
-        log(message="Test f_score: {}", value=train_f_score)
+        log(message="Train f_score: {}", value=train_f_score)
+        log(message="Test f_score: {}", value=test_f_score)
 
         save_features_importance(model.feature_importances_, x_train[0].columns.values,
                                  os.path.join(project_root(), 'data', 'processed', 'fi.png'))

@@ -162,9 +162,6 @@ def compute_scores_2019(label_directory, prediction_directory):
 
 
 def normalized_utility_score(targets, predictions):
-    targets_flat = np.concatenate(targets)
-    predictions_flat = np.concatenate(predictions)
-    accuracy, f_measure = compute_accuracy_f_measure(targets_flat, predictions_flat)
 
     dt_early = -12
     dt_optimal = -6
@@ -219,6 +216,11 @@ def normalized_utility_score(targets, predictions):
     normalized_observed_utility = (unnormalized_observed_utility - unnormalized_inaction_utility) / (
             unnormalized_best_utility - unnormalized_inaction_utility)
 
+    # return normalized_observed_utility, 0, 0
+
+    targets_flat = np.concatenate(targets)
+    predictions_flat = np.concatenate(predictions)
+    accuracy, f_measure = compute_accuracy_f_measure(targets_flat, predictions_flat)
     return normalized_observed_utility, accuracy, f_measure
 
 
