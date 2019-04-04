@@ -1,26 +1,27 @@
 import lightgbm as lgbm
 import os
 import sys
-import pickle
 import numpy as np
+import pandas as pd
+from sklearn.externals import joblib
 
 
 def load_model(path):
-    with open(path, 'rb') as fin:
-        model = pickle.load(fin)
-
-    return model
+    return joblib.load(path)
 
 
-def get_sepsis_score(values):
-    models_paths = [m for m in os.listdir('./') if m.endswith('.pkl')]
+def get_sepsis_score(values, thr):
+    models_root = 'models/'
+    models_paths = [os.path.join(models_root, m) for m in os.listdir(models_root) if m.endswith('.bin')]
+    models_paths.sort()
 
-    probas = np.zeros((len(values), ))
+    scores = np.zeros((len(values), ))
     for path in models_paths:
         model = load_model(path)
-        probas += model.predict_proba(values)[:, 1]
+        scores += model.predict_proba(values)[:, 1]
 
-    labels = np.where(probas/len(models_paths) > 0.5, 1, 0)
+    scores = scores / len(models_paths)
+    labels = np.where(scores > thr, 1, 0)
 
     return (scores, labels)
 
@@ -50,7 +51,14 @@ if __name__ == '__main__':
     (values, column_names) = read_challenge_data(input_file)
 
     # generate predictions
-    (scores, labels) = get_sepsis_score(values)
+    thr = 0.29
+    example = pd.DataFrame(values, columns=None, copy=True)
+
+    example.ffill(inplace=True)
+    example.bfill(inplace=True)
+    example.fillna(0, inplace=True)
+
+    (scores, labels) = get_sepsis_score(example.values, thr)
 
     # write predictions to output file
     output_file = record_name + '.out'

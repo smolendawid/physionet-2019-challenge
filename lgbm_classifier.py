@@ -1,23 +1,21 @@
 
 import lightgbm as lgb
 import seaborn as sns
+import logging
+import tqdm
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 from compute_scores import normalized_utility_score
-import pickle
+from sklearn.externals import joblib
 
 
 def save_model(model, path):
-    with open(path, 'wb') as fout:
-        pickle.dump(model, fout)
+    joblib.dump(model.model, path)
 
 
 def load_model(path):
-    with open(path, 'rb') as fin:
-        model = pickle.load(fin)
-
-    return model
+    return joblib.load(path)
 
 
 def save_features_importance(features_importance, features_names, path):
@@ -46,7 +44,7 @@ lgb_classifier_params = {'num_leaves': 60,
                          'reg_lambda': 0,
                          'metric': 'auc',
                          'verbosity': -1,
-                         'early_stopping_rounds': 500,
+                         'early_stopping_rounds': 100,
                          'scale_pos_weight': 20,
                          # 'is_unbalanced': False,
                          }
@@ -79,22 +77,31 @@ class LGBMClassifier:
                        # eval_metric=eval_metric)
         self.feature_importances_ = self.model.feature_importances_
 
-    def predict(self, examples, num_iteration=None):
+    def predict(self, examples, num_iteration=None, search_thr=False):
         references = []
         predictions = []
+        probas = []
         for example in examples:
             reference = example['SepsisLabel'].values
             x = example.drop(['SepsisLabel'], axis=1).values
 
             if num_iteration is None:
                 num_iteration = self.model.best_iteration_
-            probas = self.model.predict_proba(x, num_iteration=num_iteration)[:, 1]
-
-            search_result = threshold_search(reference, probas)
-            thr = search_result['threshold']
-            prediction = np.where(probas > thr, 1, 0)
+            proba = self.model.predict_proba(x, num_iteration=num_iteration)[:, 1]
 
             references.append(reference)
+            probas.append(proba)
+
+        if search_thr:
+            search_result = threshold_search(references, probas)
+            thr = search_result['threshold']
+        else:
+            thr = 0.5
+        logging.info("thr: {}".format(thr))
+        print(thr)
+
+        for proba in probas:
+            prediction = np.where(proba > thr, 1, 0)
             predictions.append(prediction)
 
         return predictions, references
@@ -104,8 +111,9 @@ def threshold_search(y_true, y_proba):
     from compute_scores import normalized_utility_score
     best_threshold = 0
     best_score = 0
-    for threshold in [i * 0.02 for i in range(100)]:
-        score = normalized_utility_score(y_true, y_proba > threshold)
+    print(threshold_search)
+    for threshold in tqdm.tqdm([i * 0.05 for i in range(20)]):
+        score, _, _ = normalized_utility_score(y_true, [y > threshold for y in y_proba])
         if score > best_score:
             best_threshold = threshold
             best_score = score

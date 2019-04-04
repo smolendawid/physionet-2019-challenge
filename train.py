@@ -9,7 +9,7 @@ from utils.path_utils import project_root
 
 from sklearn.model_selection import KFold, GroupKFold, StratifiedKFold
 from pytorch_classifier import PytorchClassifer
-from lgbm_classifier import LGBMClassifier, save_features_importance, save_model
+from lgbm_classifier import LGBMClassifier, save_features_importance, save_model, lgb_classifier_params
 from compute_scores import normalized_utility_score
 from config import nn_config
 from tensorboardX import SummaryWriter
@@ -68,6 +68,9 @@ def main(training_examples, lengths_list, is_sepsis, writer, results_path):
     y_preds_test = []
     inds_test = []
     log(message="Config={}", value=nn_config)
+    log(message="Config={}", value=lgb_classifier_params)
+    train_scores_limit = 1000
+    log(message="train_scores_limit={}", value=train_scores_limit)
 
     for i, (ind_train, ind_test) in enumerate(skf.split(training_examples, is_sepsis)):
         x_train, x_train_lens, is_sepsis_train, x_test, x_test_lens, is_sepsis_test = \
@@ -76,11 +79,12 @@ def main(training_examples, lengths_list, is_sepsis, writer, results_path):
         model = LGBMClassifier(config=nn_config, writer=writer, eval_set=[(x_test, is_sepsis_test),
                                                                             x_train, is_sepsis_train])
         model.fit(x_train, x_train_lens, is_sepsis_train)
-        y_pred_train, y_train = model.predict(x_train)
-        y_pred_test, y_test = model.predict(x_test)
+        y_pred_train, y_train = model.predict(x_train[:train_scores_limit])
+        y_pred_test, y_test = model.predict(x_test, search_thr=True)
 
+        train_score, _, train_f_score = normalized_utility_score(targets=y_train[:train_scores_limit],
+                                                                 predictions=y_pred_train[:train_scores_limit])
         test_score, _, test_f_score = normalized_utility_score(targets=y_test, predictions=y_pred_test)
-        train_score, _, train_f_score = normalized_utility_score(targets=y_train, predictions=y_pred_train)
 
         test_scores.append(test_score)
         train_scores.append(train_score)
@@ -94,7 +98,7 @@ def main(training_examples, lengths_list, is_sepsis, writer, results_path):
         save_features_importance(model.feature_importances_, x_train[0].columns.values,
                                  os.path.join(results_path, 'fi.png'))
 
-        save_model(model, path=os.path.join(results_path, 'lgbm_{}.pkl'.format(i)))
+        save_model(model, path=os.path.join(results_path, 'lgbm_{}.bin'.format(i)))
 
     log(message="\n\nMean train MAE: {}", value=np.mean(train_scores))
     log(message="Mean test MAE: {}", value=np.mean(test_scores))

@@ -1,3 +1,5 @@
 python3
 lightgbm
 python3-numpy
+python3-pandas
+python3-scikit-learn
