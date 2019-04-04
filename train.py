@@ -9,7 +9,7 @@ from utils.path_utils import project_root
 
 from sklearn.model_selection import KFold, GroupKFold, StratifiedKFold
 from pytorch_classifier import PytorchClassifer
-from lgbm_classifier import LGBMClassifier, save_features_importance
+from lgbm_classifier import LGBMClassifier, save_features_importance, save_model
 from compute_scores import normalized_utility_score
 from config import nn_config
 from tensorboardX import SummaryWriter
@@ -23,7 +23,7 @@ def log(message: str='{}', value: any=None):
 def initialize_local_experiment():
 
     exp_time = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    setup_local_results(exp_time)
+    results_path = setup_local_results(exp_time)
 
     data_name = 'training_filled.pickle'
     log(message="Data name: {}", value=data_name)
@@ -35,7 +35,7 @@ def initialize_local_experiment():
         is_sepsis = [int(l) for l in f.read().splitlines()]
     writer = SummaryWriter(log_dir=os.path.join(project_root(), 'data', 'logs', exp_time), comment='')
 
-    return training_examples, lengths_list, is_sepsis, writer
+    return training_examples, lengths_list, is_sepsis, writer, results_path
 
 
 def setup_local_results(exp_time):
@@ -45,6 +45,8 @@ def setup_local_results(exp_time):
     logging.basicConfig(filename=os.path.join(log_root, exp_time + '.log'), level=logging.DEBUG)
     shutil.copy(os.path.join(project_root(), 'pytorch_classifier.py'), log_root)
     shutil.copy(os.path.join(project_root(), 'train.py'), log_root)
+
+    return log_root
 
 
 def get_split(ind_train, ind_test, training_examples, lengths_list, is_sepsis):
@@ -59,7 +61,7 @@ def get_split(ind_train, ind_test, training_examples, lengths_list, is_sepsis):
     return x_train, x_train_lens, is_sepsis_train, x_test, x_test_lens, is_sepsis_test
 
 
-def main(training_examples, lengths_list, is_sepsis, writer):
+def main(training_examples, lengths_list, is_sepsis, writer, results_path):
     skf = StratifiedKFold(n_splits=5)
     train_scores = []
     test_scores = []
@@ -90,8 +92,9 @@ def main(training_examples, lengths_list, is_sepsis, writer):
         log(message="Test f_score: {}", value=test_f_score)
 
         save_features_importance(model.feature_importances_, x_train[0].columns.values,
-                                 os.path.join(project_root(), 'data', 'processed', 'fi.png'))
-        break
+                                 os.path.join(results_path, 'fi.png'))
+
+        save_model(model, path=os.path.join(results_path, 'lgbm_{}.pkl'.format(i)))
 
     log(message="\n\nMean train MAE: {}", value=np.mean(train_scores))
     log(message="Mean test MAE: {}", value=np.mean(test_scores))
@@ -100,5 +103,5 @@ def main(training_examples, lengths_list, is_sepsis, writer):
 
 
 if __name__ == '__main__':
-    training_examples, lengths_list, is_sepsis, writer = initialize_local_experiment()
-    main(training_examples, lengths_list, is_sepsis, writer)
+    training_examples, lengths_list, is_sepsis, writer, results_path = initialize_local_experiment()
+    main(training_examples, lengths_list, is_sepsis, writer, results_path)

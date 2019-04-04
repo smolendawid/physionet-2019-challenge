@@ -5,6 +5,19 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 from compute_scores import normalized_utility_score
+import pickle
+
+
+def save_model(model, path):
+    with open(path, 'wb') as fout:
+        pickle.dump(model, fout)
+
+
+def load_model(path):
+    with open(path, 'rb') as fin:
+        model = pickle.load(fin)
+
+    return model
 
 
 def save_features_importance(features_importance, features_names, path):
@@ -23,14 +36,14 @@ lgb_classifier_params = {'num_leaves': 60,
                          'min_data_in_leaf': 120,
                          'objective': 'binary',
                          'max_depth': -1,
-                         'learning_rate': 0.001,
+                         'learning_rate': 0.01,
                          # 'feature_fraction': 0.9,
                          # 'bagging_freq': 3,
                          # 'bagging_fraction': 0.9,
                          # 'bagging_seed': 0,
                          # 'feature_fraction_seed': 0,
-                         'reg_alpha': 1.5,
-                         'reg_lambda': 1.5,
+                         'reg_alpha': 0,
+                         'reg_lambda': 0,
                          'metric': 'auc',
                          'verbosity': -1,
                          'early_stopping_rounds': 500,
@@ -75,9 +88,26 @@ class LGBMClassifier:
 
             if num_iteration is None:
                 num_iteration = self.model.best_iteration_
-            prediction = self.model.predict(x, num_iteration=num_iteration)
+            probas = self.model.predict_proba(x, num_iteration=num_iteration)[:, 1]
+
+            search_result = threshold_search(reference, probas)
+            thr = search_result['threshold']
+            prediction = np.where(probas > thr, 1, 0)
 
             references.append(reference)
             predictions.append(prediction)
 
         return predictions, references
+
+
+def threshold_search(y_true, y_proba):
+    from compute_scores import normalized_utility_score
+    best_threshold = 0
+    best_score = 0
+    for threshold in [i * 0.02 for i in range(100)]:
+        score = normalized_utility_score(y_true, y_proba > threshold)
+        if score > best_score:
+            best_threshold = threshold
+            best_score = score
+    search_result = {'threshold': best_threshold, 'f1': best_score}
+    return search_result
