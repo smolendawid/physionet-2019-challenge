@@ -7,7 +7,7 @@ from utils.path_utils import project_root
 import sklearn.preprocessing
 
 
-def write_pickle(training_files):
+def rewrite_data_to_better_formats(training_files):
 
     lengths = []
     is_sepsis = []
@@ -87,4 +87,4 @@ if __name__ == '__main__':
     training_files = [os.path.join(data_path, f) for f in os.listdir(data_path) if f.endswith('.csv')]
     training_files.sort()
 
-    write_pickle(training_files)
+    rewrite_data_to_better_formats(training_files)
