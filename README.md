@@ -16,11 +16,12 @@ All the models can be ensembled and tested with the same splits.
 You can easily run Neural Network switching LightGBM to PytorchClassifer in code and commenting features saving.
 I'm not going to refactor this at the moment.
 
-features:
-- tensorboard logger
-- loading data with similar lengths in batch (sorted and then bucketed) - faster training because doesn't wait for 
-shortest examples + almost no padding
-- Transformer or GRU
+Cool features:
+
+    - tensorboard logger
+    - loading data with similar lengths in batch (sorted and then bucketed) results in  faster training because 
+    doesn't wait for shortest examples + almost no padding
+    - Transformer or GRU
 
 ---
 
